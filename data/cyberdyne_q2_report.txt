@@ -1,0 +1,10 @@
+# CyberDyne Systems - Q2 2026 Internal Memo
+
+## Project Phoenix Update
+Under the new leadership of Miles Dyson Jr., Project Phoenix has been accelerated. Due to unexpected breakthroughs in the mesh network protocols, an additional $600,000 has been added to the project's budget. The team expects a working prototype by November.
+
+## Q2 Financials
+Revenue for Q2 rebounded significantly to $820,000. This was largely driven by the unexpected licensing of our legacy AI algorithms to a major robotics firm in Japan. 
+
+## Security Notice
+All employees must update their keycards by August 15th, 2026, as we are migrating to a new biometric security system in the main lobby.
