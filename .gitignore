@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .env
 chroma_db/
+chroma_db_advanced/
+chroma_db_mahabharata/
+data/
