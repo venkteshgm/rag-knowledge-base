@@ -18,7 +18,11 @@ The system is split into two parallel retrieval pipelines that converge into a f
    - The graph tracks Nodes dynamically categorized as `Character`, `Location`, `Concept`, `Weapon`, or `Event`.
    - **Edge Embeddings**: During extraction, every edge string (e.g., `[Subject] --(action)--> [Object]`) is simultaneously embedded into a parallel ChromaDB (`chroma_db_edges`). This completely eliminates Cypher's brittle string-matching flaws and allows fuzzy semantic search directly on Graph relationships!
 
-3. **Tri-brid Synthesis (The Master Cascade)**
+3. **RAPTOR (Recursive Abstractive Processing for Tree-Organized Retrieval)**
+   - Text chunks are semantically clustered using UMAP dimensionality reduction and Gaussian Mixture Models (GMM).
+   - Clusters are recursively summarized by an LLM up to a depth of 3, allowing the system to answer sweeping thematic or multi-hop questions by retrieving high-level summaries instead of missing context scattered across isolated chunks.
+
+4. **Tri-brid Synthesis (The Master Cascade)**
    - The final query engine (`hybrid_query.py`) utilizes a highly coveted Tri-brid Architecture:
      - **Path A (The Poet)**: Searches the raw paragraph vector database for thematic storytelling.
      - **Path B (The Intuitive Historian)**: Searches the Edge Embeddings mathematically for conceptual or fuzzy relationship matches.
@@ -40,21 +44,23 @@ To rapidly process the entire 750,000-character epic without spending money on A
 ## Project Files
 
 ### Data Preparation
-- `scripts/download_and_prep_data.py`: Downloads the raw text, sanitizes OCR errors, and standardizes character aliases across the entire epic using regex.
+- `scripts/download_and_prep_data.py`: Downloads the raw text, sanitizes OCR errors, and standardizes character aliases across the entire epic using regex and **Cryptographic ID Mapping** (e.g. replacing 'Arjuna' with 'ENTITY_ARJ7') to completely blind the LLM from its pre-training bias, ensuring answers are purely derived from the retrieved RAG context.
 
 ### Database Construction
 - `build_index.py`: Chunks the text and embeds it into the Chroma Vector Database.
 - `build_graph.py`: Batches the text and uses Gemini to extract relationships into the Kuzu Graph Database.
+- `build_raptor.py`: Runs UMAP/GMM clustering and LLM summarization to build the hierarchical RAPTOR index.
 
 ### Query Engines
 - `query_graph.py`: A pure GraphRAG engine that extracts target entities and runs Cypher queries.
-- `hybrid_query.py`: The ultimate engine that combines both Vector and Graph databases to generate the perfect answer using dynamic Text-to-Cypher logic.
+- `hybrid_query.py`: An engine that combines Vector and Graph databases to generate the perfect answer using dynamic Text-to-Cypher logic.
+- `agentic_query.py`: An autonomous agent loop that decides which tools to query (Raw Text, Fuzzy Edges, RAPTOR Summaries) and when to answer the user's question, displaying its "thoughts" to the user along the way.
 
 ## Setup & Execution
 
 1. Install the required python dependencies:
    ```bash
-   pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv
+   pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv umap-learn scikit-learn
    ```
 3. Create a `.env` file in the root directory and add your Google API key:
    ```env
@@ -66,7 +72,7 @@ To rapidly process the entire 750,000-character epic without spending money on A
    python build_index.py
    python build_graph.py
    ```
-4. Query the epic:
+4. Query the epic (Agentic Mode):
    ```bash
-   python hybrid_query.py
+   python agentic_query.py
    ```

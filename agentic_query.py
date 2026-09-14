@@ -1,0 +1,152 @@
+import os
+import sys
+import kuzu
+from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_ollama import OllamaEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.agents import Tool, AgentExecutor, create_react_agent
+from langchain.prompts import PromptTemplate
+
+# Load Env
+load_dotenv()
+if not os.environ.get("GOOGLE_API_KEY"):
+    print("ERROR: GOOGLE_API_KEY environment variable not set. Please export it first!")
+    sys.exit(1)
+
+# Initialize Embeddings
+embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+
+# 1. Initialize Vector Index (Path A)
+vectorstore = Chroma(persist_directory="./chroma_db_mahabharata", embedding_function=embeddings)
+vector_retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+
+# 2. Initialize Edge Embeddings (Path B)
+edges_vectorstore = Chroma(persist_directory="./chroma_db_edges", embedding_function=embeddings)
+edges_retriever = edges_vectorstore.as_retriever(search_kwargs={"k": 10})
+
+# 3. Initialize KuzuDB (Path C)
+kuzu_db = kuzu.Database("./kuzu_db")
+kuzu_conn = kuzu.Connection(kuzu_db)
+
+# 4. Initialize RAPTOR Summaries (Path D)
+raptor_vectorstore = Chroma(persist_directory="./chroma_db_raptor", embedding_function=embeddings)
+raptor_retriever = raptor_vectorstore.as_retriever(search_kwargs={"k": 3})
+
+# --- DEFINE TOOLS ---
+def search_vector_index(query: str) -> str:
+    """Searches the raw text of the Mahabharata for specific paragraphs, scenes, and descriptions."""
+    docs = vector_retriever.invoke(query)
+    if not docs:
+        return "No paragraphs found."
+    return "\n\n".join([f"[Paragraph]: {doc.page_content}" for doc in docs])
+
+def search_edge_embeddings(query: str) -> str:
+    """Searches the Knowledge Graph mathematically for conceptual or fuzzy relationships between entities."""
+    docs = edges_retriever.invoke(query)
+    if not docs:
+        return "No edge relationships found."
+    return "\n".join([doc.page_content for doc in docs])
+
+def search_cypher_graph(character_name: str) -> str:
+    """Forcefully extracts EVERY known deterministic relationship involving a specific Character's Name. Input MUST be a character name, e.g., 'Karnos'."""
+    # Clean the input just in case
+    char_name = character_name.strip("'").strip('"').strip().lower()
+    query = f"MATCH (s:Entity)-[r:RelatedTo]->(o:Entity) WHERE toLower(s.name) CONTAINS '{char_name}' OR toLower(o.name) CONTAINS '{char_name}' RETURN s.name, r.relationship, o.name LIMIT 30"
+    try:
+        results = kuzu_conn.execute(query)
+        cypher_facts = []
+        while results.has_next():
+            row = results.get_next()
+            cypher_facts.append(f"[{row[0]}] --({row[1]})--> [{row[2]}]")
+        if not cypher_facts:
+            return f"No hard facts found for character {char_name}."
+        return "\n".join(cypher_facts)
+    except Exception as e:
+        return f"Cypher Execution Failed: {e}"
+
+def search_raptor_summaries(query: str) -> str:
+    """Searches High-Level hierarchical summaries of the epic. Use this for broad, thematic, or global reasoning questions (e.g. 'What caused the war?', 'What is Dharma?')."""
+    docs = raptor_retriever.invoke(query)
+    if not docs:
+        return "No global summaries found."
+    return "\n\n".join([f"[RAPTOR Summary]: {doc.page_content}" for doc in docs])
+
+tools = [
+    Tool(
+        name="Search_Raw_Text",
+        func=search_vector_index,
+        description="Searches raw text paragraphs. Use to find specific quotes, battlefield descriptions, and granular story events."
+    ),
+    Tool(
+        name="Search_Fuzzy_Edges",
+        func=search_edge_embeddings,
+        description="Searches graph edges using conceptual meaning. Use to find actions like 'who killed X' or 'who taught Y' when you don't know the character names."
+    ),
+    Tool(
+        name="Search_Exact_Character_Graph",
+        func=search_cypher_graph,
+        description="Extracts all graph edges for a SPECIFIC character. Input must ONLY be a Character Name (e.g. 'Arjunos'). Highly accurate for character logic."
+    ),
+    Tool(
+        name="Search_RAPTOR_Summaries",
+        func=search_raptor_summaries,
+        description="Searches global summaries. Use for broad, thematic, or philosophical questions spanning multiple chapters."
+    )
+]
+
+# --- DEFINE AGENT ---
+llm = ChatGoogleGenerativeAI(model="gemini-3.5-flash-lite", temperature=0)
+
+# ReAct Prompt
+template = '''Answer the following questions as best you can. You are an expert on the Mahabharata. You have access to the following tools:
+
+{tools}
+
+Use the following format:
+
+Question: the input question you must answer
+Thought: you should always think about what to do, what tools to use, and whether you need to chain searches.
+Action: the action to take, should be one of [{tool_names}]
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times until you have enough evidence)
+Thought: I now know the final answer
+Final Answer: the final synthesized answer to the original input question
+
+Begin!
+
+Question: {input}
+Thought:{agent_scratchpad}'''
+
+prompt = PromptTemplate.from_template(template)
+
+agent = create_react_agent(llm, tools, prompt)
+
+# We use verbose=True so the user can see exactly what the LLM is thinking and doing
+agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+
+def run_agentic_loop():
+    print("\n--- AGENTIC RAG SYSTEM READY ---")
+    print("The AI will now autonomously decide which databases to query, investigate leads, and stream its thoughts to you.")
+    
+    while True:
+        try:
+            query = input("\nAsk a multi-hop or global question about the epic: ")
+        except EOFError:
+            break
+            
+        if query.lower() in ['exit', 'quit']:
+            break
+            
+        print("\n===========================================")
+        print(f"USER: {query}")
+        print("===========================================\n")
+        try:
+            # Execute the agent and stream thoughts to terminal
+            agent_executor.invoke({"input": query})
+        except Exception as e:
+            print(f"\nAgent failed: {e}")
+            
+if __name__ == "__main__":
+    run_agentic_loop()
