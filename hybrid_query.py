@@ -5,16 +5,18 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_core.embeddings import Embeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 import time
-
-warnings.filterwarnings("ignore")
+import json
 
 CHROMA_DB_DIR = "./chroma_db_mahabharata"
 KUZU_DB_DIR = "./kuzu_db"
+EDGES_DB_DIR = "./chroma_db_edges"
+USE_LOCAL_EMBEDDINGS = True
 
 class CypherQuery(BaseModel):
     query: str = Field(description="A valid Kuzu Cypher query to retrieve facts answering the user's question.")
@@ -45,22 +47,34 @@ def hybrid_query():
         print("ERROR: GOOGLE_API_KEY environment variable not set. Please export it first!")
         return
 
-    print("1. Initializing Local Vector Database (Chroma + Gemini)...")
+    print("1. Initializing Local Vector Database (Chroma)...")
     if not os.path.exists(CHROMA_DB_DIR):
         print(f"Error: Vector DB {CHROMA_DB_DIR} not found.")
         return
-    embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
+        
+    if USE_LOCAL_EMBEDDINGS:
+        embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+    else:
+        embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
+        
     vectorstore = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
     vector_retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
-    print("2. Initializing Local Graph Database (Kuzu)...")
+    print("2. Initializing Local Edge Database (Chroma)...")
+    if not os.path.exists(EDGES_DB_DIR):
+        print(f"Error: Edge DB {EDGES_DB_DIR} not found.")
+        return
+    edges_vectorstore = Chroma(persist_directory=EDGES_DB_DIR, embedding_function=embeddings)
+    edges_retriever = edges_vectorstore.as_retriever(search_kwargs={"k": 15})
+
+    print("2.5 Initializing Kuzu DB for Cypher Fallback...")
     if not os.path.exists(KUZU_DB_DIR):
-        print(f"Error: Graph DB {KUZU_DB_DIR} not found.")
+        print(f"Error: Kuzu DB {KUZU_DB_DIR} not found.")
         return
     kuzu_db = kuzu.Database(KUZU_DB_DIR)
     kuzu_conn = kuzu.Connection(kuzu_db)
 
-    print("3. Initializing Cloud LLM Cascade (Gemini/Gemma)...")
+    print("3. Initializing Cloud LLM Cascade (Gemini/Gemma) for Final Synthesis...")
     models_to_try = [
         "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
@@ -68,14 +82,7 @@ def hybrid_query():
         "gemma-4-26b"
     ]
     
-    # 1. Structured Extractor Cascade
-    structured_llms = []
-    for model_name in models_to_try:
-        llm = ChatGoogleGenerativeAI(model=model_name, temperature=0, max_retries=0)
-        structured_llms.append(llm.with_structured_output(CypherQuery))
-    extractor_chain = structured_llms[0].with_fallbacks(structured_llms[1:])
-    
-    # 2. Text Generator Cascade
+    # Text Generator Cascade
     generator_llms = []
     for model_name in models_to_try:
         llm = ChatGoogleGenerativeAI(model=model_name, temperature=0, max_retries=0)
@@ -100,37 +107,41 @@ def hybrid_query():
         docs = vector_retriever.invoke(query)
         vector_context = "\n\n".join([f"[Paragraph {i+1}]: {doc.page_content}" for i, doc in enumerate(docs)])
         
-        # --- PATH B: GRAPH RETRIEVAL (TEXT-TO-CYPHER) ---
-        print("  -> Generating Dynamic Database Query...")
-        graph_facts = ""
-        try:
-            cypher_prompt = f"""
-You are an expert graph database architect. Convert the user's question into a Kuzu Cypher query.
-Our graph database schema is:
-- Node Table: `Entity` with properties `name` (STRING), `label` (STRING). 
-  (Labels include 'Character', 'Location', 'Concept', 'Weapon', 'Event')
-- Relationship Table: `RelatedTo` from `Entity` to `Entity`, with property `relationship` (STRING).
+        # --- PATH B: EDGE RETRIEVAL (VECTOR-GRAPH HYBRID) ---
+        print("  -> Searching Graph Edges via Semantic Math...")
+        edge_docs = edges_retriever.invoke(query)
+        graph_facts = "\n".join([doc.page_content for doc in edge_docs])
+        if graph_facts:
+            print(f"     Found {len(edge_docs)} relevant semantic edges in the Knowledge Graph.")
 
-Write a Cypher query to find facts that answer this question: {query}
-Only return the mathematical query, nothing else. Example format:
-MATCH (s:Entity)-[r:RelatedTo]->(o:Entity) WHERE s.name = 'Arjunos' RETURN s.name, r.relationship, o.name LIMIT 10
-"""
-            extraction = extractor_chain.invoke(cypher_prompt)
-            cypher_code = extraction.query.strip()
-            
-            if cypher_code:
-                print(f"     Executing: {cypher_code}")
-                results = kuzu_conn.execute(cypher_code)
-                facts = []
+        # --- PATH C: CYPHER FALLBACK (DETERMINISTIC EXTRACT) ---
+        print("  -> Searching Graph via Deterministic Cypher...")
+        cypher_prompt = ChatPromptTemplate.from_messages([
+            ("system", "You are an AI that writes KuzuDB Cypher queries. The graph has ONE node table: Entity (name STRING, label STRING) and ONE relationship table: RelatedTo. "
+                       "RULE: NEVER filter by the relationship verb. ONLY filter by Character names using CONTAINS. "
+                       "Return ONLY the raw Cypher query string and nothing else, no markdown formatting. "
+                       "Example: MATCH (s:Entity)-[r:RelatedTo]->(o:Entity) WHERE toLower(s.name) CONTAINS 'parasurama' OR toLower(o.name) CONTAINS 'parasurama' RETURN s.name, r.relationship, o.name LIMIT 20"),
+            ("human", "Question: {input}")
+        ])
+        cypher_chain = cypher_prompt | generator_chain | StrOutputParser()
+        try:
+            cypher_query_str = cypher_chain.invoke({"input": query}).strip().strip("`").replace("cypher\n", "")
+            if cypher_query_str.lower().startswith("match"):
+                print(f"     Executing Cypher: {cypher_query_str}")
+                results = kuzu_conn.execute(cypher_query_str)
+                cypher_facts_list = []
                 while results.has_next():
                     row = results.get_next()
-                    # Convert row to a string format
-                    facts.append(str(row))
-                
-                if facts:
-                    graph_facts = "\n".join(facts)
+                    cypher_facts_list.append(f"[{row[0]}] --({row[1]})--> [{row[2]}]")
+                if cypher_facts_list:
+                    print(f"     Found {len(cypher_facts_list)} exact Cypher edges.")
+                    # Combine with semantic edge facts
+                    if graph_facts:
+                        graph_facts += "\n" + "\n".join(cypher_facts_list)
+                    else:
+                        graph_facts = "\n".join(cypher_facts_list)
         except Exception as e:
-            print(f"     Failed to execute Cypher: {e}")
+            print(f"     Cypher Fallback failed: {e}")
 
         # --- STEP 3: MASTER SYNTHESIS ---
         print("  -> Synthesizing Hybrid Answer...")

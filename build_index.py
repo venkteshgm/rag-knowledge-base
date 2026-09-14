@@ -8,11 +8,13 @@ from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
 from langchain_core.embeddings import Embeddings
 import time
 from dotenv import load_dotenv
 
 DB_DIR = "./chroma_db_mahabharata"
+USE_LOCAL_EMBEDDINGS = True
 
 class RetryEmbeddings(Embeddings):
     def __init__(self, model_name="gemini-embedding-2"):
@@ -43,8 +45,12 @@ def build_index():
     print(f"0. Cleaning up old database at {DB_DIR}...")
     shutil.rmtree(DB_DIR, ignore_errors=True)
     
-    print("1. Initializing Embedding model from Google API (gemini-embedding-2)...")
-    embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
+    if USE_LOCAL_EMBEDDINGS:
+        print("1. Initializing Embedding model from local Ollama (mxbai-embed-large)...")
+        embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+    else:
+        print("1. Initializing Embedding model from Google API (gemini-embedding-2)...")
+        embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
     
     print("2. Loading documents from 'data/' directory...")
     # Load our specific swapped text file

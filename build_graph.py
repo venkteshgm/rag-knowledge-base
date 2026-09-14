@@ -5,10 +5,35 @@ import time
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 from typing import List
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_ollama import OllamaEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.embeddings import Embeddings
 from dotenv import load_dotenv
 
 DB_DIR = "./kuzu_db"
+EDGES_DB_DIR = "./chroma_db_edges"
+USE_LOCAL_EMBEDDINGS = True
+
+class RetryEmbeddings(Embeddings):
+    def __init__(self, model_name="gemini-embedding-2"):
+        self.emb = GoogleGenerativeAIEmbeddings(model=model_name)
+        
+    def embed_documents(self, texts):
+        while True:
+            try:
+                return self.emb.embed_documents(texts)
+            except Exception as e:
+                print(f"    [Embedding Rate Limit] Sleeping for 10s... ({e})")
+                time.sleep(10)
+                
+    def embed_query(self, text):
+        while True:
+            try:
+                return self.emb.embed_query(text)
+            except Exception as e:
+                print(f"    [Embedding Rate Limit] Sleeping for 10s... ({e})")
+                time.sleep(10)
 
 class Node(BaseModel):
     name: str = Field(description="The unique name of the entity")
@@ -29,12 +54,26 @@ def build_graph():
         print("ERROR: GOOGLE_API_KEY environment variable not set. Please export it first!")
         return
 
-    if os.path.exists(DB_DIR):
-        if os.path.isdir(DB_DIR):
-            shutil.rmtree(DB_DIR)
-        else:
-            os.remove(DB_DIR)
+    print(f"1. Cleaning up old databases...")
+    for db_path in [DB_DIR, EDGES_DB_DIR]:
+        if os.path.exists(db_path):
+            if os.path.isdir(db_path):
+                shutil.rmtree(db_path, ignore_errors=True)
+            else:
+                try:
+                    os.remove(db_path)
+                except Exception:
+                    pass
+    
+    if USE_LOCAL_EMBEDDINGS:
+        print("   Initializing Edge Embeddings from local Ollama (mxbai-embed-large)...")
+        embeddings = OllamaEmbeddings(model="mxbai-embed-large")
+    else:
+        print("   Initializing Edge Embeddings from Google API (gemini-embedding-2)...")
+        embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
         
+    edges_vectorstore = Chroma(embedding_function=embeddings, persist_directory=EDGES_DB_DIR)
+
     print("1. Initializing KuzuDB...")
     db = kuzu.Database(DB_DIR)
     conn = kuzu.Connection(db)
@@ -73,6 +112,9 @@ def build_graph():
     start_time = time.time()
     
     # Process ALL chunks for the full epic
+    batch_edge_texts = []
+    batch_edge_metadatas = []
+
     for i, chunk in enumerate(chunks):
         print(f"  Processing chunk {i+1}/{len(chunks)}...")
         try:
@@ -112,12 +154,27 @@ def build_graph():
                 )
                 print(f"    --> Graph Edge: [{sub}] --({act})--> [{obj}]")
                 
+                # Add to vector store batch
+                edge_text = f"[{sub}] --({act})--> [{obj}]"
+                batch_edge_texts.append(edge_text)
+                batch_edge_metadatas.append({"source": sub, "target": obj, "relationship": act})
+                
+            # Periodically write edge embeddings to Chroma to prevent memory bloat and save API calls in chunks
+            if batch_edge_texts and len(batch_edge_texts) >= 50:
+                edges_vectorstore.add_texts(texts=batch_edge_texts, metadatas=batch_edge_metadatas)
+                batch_edge_texts = []
+                batch_edge_metadatas = []
+                
         except Exception as e:
-            print(f"    Failed to process chunk: {e}")
+            print(f"    Failed to extract from chunk {i+1}. Skipping. Error: {e}")
+
+    # Write any remaining edges
+    if batch_edge_texts:
+        edges_vectorstore.add_texts(texts=batch_edge_texts, metadatas=batch_edge_metadatas)
 
     end_time = time.time()
     elapsed = end_time - start_time
-    print(f"\nGraph Indexing Complete! Nodes and edges successfully saved to KuzuDB.")
+    print(f"\nGraph Indexing Complete! Nodes and edges successfully saved to KuzuDB and ChromaDB Edge Index.")
     print(f"Total time to build graph with Gemini: {elapsed:.2f} seconds.")
 
 if __name__ == "__main__":

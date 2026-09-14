@@ -9,26 +9,29 @@ By combining the semantic storytelling context of a Vector Database with the und
 The system is split into two parallel retrieval pipelines that converge into a final master synthesis:
 
 1. **Semantic Vector Search (ChromaDB)**
-   - Text is chopped into small chunks and mathematically embedded into a local vector space using Google's `gemini-embedding-2`.
+   - Text is chopped into small chunks and mathematically embedded into a local vector space.
    - Ideal for retrieving rich story context, descriptive prose, and general thematic matching.
-   - Employs a custom `RetryEmbeddings` wrapper to automatically handle API rate limits during massive indexing jobs.
+   - **Local Pivot**: Upgraded to use 100% local, uncensored embeddings via Ollama (`mxbai-embed-large`) to bypass cloud rate limits, with a seamless toggle (`USE_LOCAL_EMBEDDINGS`) for backward compatibility.
 
 2. **GraphRAG (KuzuDB)**
-   - Text is processed in massive 15,000-character batches by a frontier LLM to extract complex relationships across an advanced ontology.
+   - Text is processed by a frontier LLM to extract complex relationships across an advanced ontology.
    - The graph tracks Nodes dynamically categorized as `Character`, `Location`, `Concept`, `Weapon`, or `Event`.
-   - These facts are stored as explicit Nodes and Edges in a local Knowledge Graph.
+   - **Edge Embeddings**: During extraction, every edge string (e.g., `[Subject] --(action)--> [Object]`) is simultaneously embedded into a parallel ChromaDB (`chroma_db_edges`). This completely eliminates Cypher's brittle string-matching flaws and allows fuzzy semantic search directly on Graph relationships!
 
-3. **Hybrid Synthesis & Text-to-Cypher**
-   - The final query engine (`hybrid_query.py`) simultaneously searches ChromaDB for context and KuzuDB for hard facts.
-   - It utilizes a dedicated **Text-to-Cypher** agent that translates your question into raw mathematical database code to hunt down complex answers across the graph.
-   - It synthesizes both data streams into a single Master Prompt, allowing the generation LLM to anchor its logic in the graph while drawing descriptive flavor from the vector chunks.
+3. **Tri-brid Synthesis (The Master Cascade)**
+   - The final query engine (`hybrid_query.py`) utilizes a highly coveted Tri-brid Architecture:
+     - **Path A (The Poet)**: Searches the raw paragraph vector database for thematic storytelling.
+     - **Path B (The Intuitive Historian)**: Searches the Edge Embeddings mathematically for conceptual or fuzzy relationship matches.
+     - **Path C (The Rigid Historian)**: A generative LLM writes a rigid Kuzu Cypher query that forcefully pulls *all* edges connected to the requested characters, ignoring the relationship verb completely to prevent extraction loss.
+   - It synthesizes all three data streams into a single Master Prompt for the final LLM to generate an incredibly accurate answer.
 
 ## Technologies Used
 
 - **LangChain**: The core orchestration framework tying the databases, models, and fallback cascades together.
+- **Ollama**: Powers the 100% local, uncensored embedding infrastructure (`mxbai-embed-large`).
 - **KuzuDB**: A hyper-fast, embeddable graph database used to store character interaction edges.
-- **ChromaDB**: The local vector database used to store semantic text embeddings.
-- **Google Gemini / Gemma APIs**: Powers the entire architecture 100% in the cloud via the `langchain-google-genai` integration (Vector Embeddings, Graph Extraction, Text-to-Cypher, and Final Synthesis).
+- **ChromaDB**: The local vector database used to store semantic text embeddings AND Edge Embeddings.
+- **Google Gemini / Gemma APIs**: Powers the generative reasoning steps via the `langchain-google-genai` integration (Graph Extraction, Cypher Fallback, and Final Synthesis).
 - **Pydantic**: Enforces strict JSON schema validation for the GraphRAG extraction via LangChain's `with_structured_output`, ensuring the LLM perfectly maps its findings to the Kuzu schema.
 
 ## Resilience (Cascade Failover)
@@ -51,7 +54,7 @@ To rapidly process the entire 750,000-character epic without spending money on A
 
 1. Install the required python dependencies:
    ```bash
-   pip install langchain langchain-chroma langchain-google-genai pydantic kuzu python-dotenv
+   pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv
    ```
 3. Create a `.env` file in the root directory and add your Google API key:
    ```env
