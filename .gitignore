@@ -2,7 +2,9 @@ venv/
 __pycache__/
 *.pyc
 .env
-chroma_db/
-chroma_db_advanced/
+chroma_db*/
+data/
+kuzu_db/
+.env_advanced/
 chroma_db_mahabharata/
 data/

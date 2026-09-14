@@ -60,6 +60,7 @@ NAME_SWAPS = {
     
     r"\bAshvatthama\b": "Ashvatthamos",
     r"\bAshwatthama\b": "Ashvatthamos",
+    r"\bAswatthama\b": "Ashvatthamos",
     r"\bDroniputra\b": "Ashvatthamos",
     
     r"\bAbhimanyu\b": "Abhimanyos",
