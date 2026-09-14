@@ -103,6 +103,9 @@ template = '''Answer the following questions as best you can. You are an expert 
 
 {tools}
 
+CRITICAL RULE 1 (Blind Searching): You must ONLY use the provided ENTITY_XXX, FACTION_XXX, or LOCATION_XXX IDs in your tool inputs. Do NOT attempt to guess their real names or translate them back into English. For example, if you see ENTITY_DRO6, query using ENTITY_DRO6.
+CRITICAL RULE 2 (Anti-Hallucination): In your Final Answer, you are STRICTLY FORBIDDEN from mentioning any facts, storylines, or events that were not explicitly stated in the 'Observation' blocks. Do not use your pre-trained knowledge to fill in gaps. If the text does not say why someone did something, do not add it!
+
 Use the following format:
 
 Question: the input question you must answer
@@ -111,7 +114,7 @@ Action: the action to take, should be one of [{tool_names}]
 Action Input: the input to the action
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times until you have enough evidence)
-Thought: I now know the final answer
+Thought: I now know the final answer based STRICTLY on the Observations.
 Final Answer: the final synthesized answer to the original input question
 
 Begin!

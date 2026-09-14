@@ -71,6 +71,7 @@ To rapidly process the entire 750,000-character epic without spending money on A
    python scripts/download_and_prep_data.py
    python build_index.py
    python build_graph.py
+   python build_raptor.py
    ```
 4. Query the epic (Agentic Mode):
    ```bash
