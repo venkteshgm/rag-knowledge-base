@@ -38,6 +38,12 @@ The system is split into two parallel retrieval pipelines that converge into a f
 - **Google Gemini / Gemma APIs**: Powers the generative reasoning steps via the `langchain-google-genai` integration (Graph Extraction, Cypher Fallback, and Final Synthesis).
 - **Pydantic**: Enforces strict JSON schema validation for the GraphRAG extraction via LangChain's `with_structured_output`, ensuring the LLM perfectly maps its findings to the Kuzu schema.
 
+## Anti-Bleeding Strategy (Cryptographic Mappings)
+One of the biggest challenges with LLMs in RAG architectures for famous texts (like the Mahabharata) is **pre-training bleed** — where the model ignores the retrieved context and answers from its training data. 
+To completely eliminate this:
+1. **Total Identity Wipe**: `scripts/download_and_prep_data.py` uses aggressive regex to swap over 50 canonical characters, gods, and locations with meaningless hashes (e.g., Arjuna -> `ENTITY_ARJ7`, Drona -> `ENTITY_DRO6`).
+2. **Semantic Anchors Removed**: Even minor characters and spouses (like Abhimanyu or Subhadra) are swapped, ensuring the LLM cannot "triangulate" the identities through relationships.
+3. **Strict Agent Guardrails**: The ReAct prompt in `agentic_query.py` explicitly forbids the LLM from trying to map `ENTITY_XXX` IDs back to real names, forcing it to generate its answers *purely* from the observed context.
 ## Resilience (Cascade Failover)
 To rapidly process the entire 750,000-character epic without spending money on API costs, this project utilizes a custom **LangChain Fallback Cascade**. If a model hits a Free Tier rate limit (HTTP 429), the architecture instantly catches the error and seamlessly routes the request to the next available model in a predefined priority list (e.g., `gemini-3.5-flash-lite` -> `gemini-3.1-flash-lite` -> `gemma-4-31b`).
 
