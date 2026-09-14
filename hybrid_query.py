@@ -4,18 +4,40 @@ import warnings
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_core.embeddings import Embeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+import time
 
 warnings.filterwarnings("ignore")
 
 CHROMA_DB_DIR = "./chroma_db_mahabharata"
 KUZU_DB_DIR = "./kuzu_db"
 
-class TargetEntity(BaseModel):
-    entity: str = Field(description="The main character entity from the question")
+class CypherQuery(BaseModel):
+    query: str = Field(description="A valid Kuzu Cypher query to retrieve facts answering the user's question.")
+
+class RetryEmbeddings(Embeddings):
+    def __init__(self, model_name="gemini-embedding-2"):
+        self.emb = GoogleGenerativeAIEmbeddings(model=model_name)
+        
+    def embed_documents(self, texts):
+        while True:
+            try:
+                return self.emb.embed_documents(texts)
+            except Exception as e:
+                print(f"    [Embedding Rate Limit] Sleeping for 10s... ({e})")
+                time.sleep(10)
+                
+    def embed_query(self, text):
+        while True:
+            try:
+                return self.emb.embed_query(text)
+            except Exception as e:
+                print(f"    [Embedding Rate Limit] Sleeping for 10s... ({e})")
+                time.sleep(10)
 
 def hybrid_query():
     load_dotenv()
@@ -23,11 +45,11 @@ def hybrid_query():
         print("ERROR: GOOGLE_API_KEY environment variable not set. Please export it first!")
         return
 
-    print("1. Initializing Local Vector Database (Chroma + Nomic)...")
+    print("1. Initializing Local Vector Database (Chroma + Gemini)...")
     if not os.path.exists(CHROMA_DB_DIR):
         print(f"Error: Vector DB {CHROMA_DB_DIR} not found.")
         return
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
     vectorstore = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
     vector_retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
 
@@ -50,7 +72,7 @@ def hybrid_query():
     structured_llms = []
     for model_name in models_to_try:
         llm = ChatGoogleGenerativeAI(model=model_name, temperature=0, max_retries=0)
-        structured_llms.append(llm.with_structured_output(TargetEntity))
+        structured_llms.append(llm.with_structured_output(CypherQuery))
     extractor_chain = structured_llms[0].with_fallbacks(structured_llms[1:])
     
     # 2. Text Generator Cascade
@@ -78,30 +100,37 @@ def hybrid_query():
         docs = vector_retriever.invoke(query)
         vector_context = "\n\n".join([f"[Paragraph {i+1}]: {doc.page_content}" for i, doc in enumerate(docs)])
         
-        # --- PATH B: GRAPH RETRIEVAL ---
-        print("  -> Extracting Entities and Searching Knowledge Graph...")
+        # --- PATH B: GRAPH RETRIEVAL (TEXT-TO-CYPHER) ---
+        print("  -> Generating Dynamic Database Query...")
         graph_facts = ""
         try:
-            extraction = extractor_chain.invoke(f"Extract the main character entity from this question: {query}")
-            target_entity = extraction.entity.strip().title()
+            cypher_prompt = f"""
+You are an expert graph database architect. Convert the user's question into a Kuzu Cypher query.
+Our graph database schema is:
+- Node Table: `Entity` with properties `name` (STRING), `label` (STRING). 
+  (Labels include 'Character', 'Location', 'Concept', 'Weapon', 'Event')
+- Relationship Table: `RelatedTo` from `Entity` to `Entity`, with property `relationship` (STRING).
+
+Write a Cypher query to find facts that answer this question: {query}
+Only return the mathematical query, nothing else. Example format:
+MATCH (s:Entity)-[r:RelatedTo]->(o:Entity) WHERE s.name = 'Arjunos' RETURN s.name, r.relationship, o.name LIMIT 10
+"""
+            extraction = extractor_chain.invoke(cypher_prompt)
+            cypher_code = extraction.query.strip()
             
-            if target_entity:
-                print(f"     Found target entity: [{target_entity}]")
-                cypher = '''
-                MATCH (s:Character)-[r:InteractedWith]->(o:Character)
-                WHERE s.name = $target OR o.name = $target
-                RETURN s.name, r.action, o.name
-                '''
-                results = kuzu_conn.execute(cypher, parameters={"target": target_entity})
+            if cypher_code:
+                print(f"     Executing: {cypher_code}")
+                results = kuzu_conn.execute(cypher_code)
                 facts = []
                 while results.has_next():
                     row = results.get_next()
-                    facts.append(f"[{row[0]}] --({row[1]})--> [{row[2]}]")
+                    # Convert row to a string format
+                    facts.append(str(row))
                 
                 if facts:
                     graph_facts = "\n".join(facts)
         except Exception as e:
-            print(f"     Failed to query graph: {e}")
+            print(f"     Failed to execute Cypher: {e}")
 
         # --- STEP 3: MASTER SYNTHESIS ---
         print("  -> Synthesizing Hybrid Answer...")

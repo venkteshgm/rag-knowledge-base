@@ -10,13 +10,18 @@ from dotenv import load_dotenv
 
 DB_DIR = "./kuzu_db"
 
-class Interaction(BaseModel):
-    subject: str = Field(description="The name of the character performing the action")
-    action: str = Field(description="The action being performed, e.g. 'killed'")
-    object: str = Field(description="The name of the character receiving the action")
+class Node(BaseModel):
+    name: str = Field(description="The unique name of the entity")
+    label: str = Field(description="The category: Character, Location, Concept, Weapon, or Event")
+
+class Edge(BaseModel):
+    source: str = Field(description="The name of the source node")
+    target: str = Field(description="The name of the target node")
+    relationship: str = Field(description="The relationship, e.g. 'killed', 'located_in', 'influenced_by'")
 
 class GraphExtraction(BaseModel):
-    relationships: List[Interaction] = Field(description="A list of all character interactions in the text")
+    nodes: List[Node] = Field(description="All distinct entities mentioned in the text")
+    edges: List[Edge] = Field(description="All relationships between the extracted nodes")
 
 def build_graph():
     load_dotenv()
@@ -35,8 +40,8 @@ def build_graph():
     conn = kuzu.Connection(db)
     
     print("2. Creating Graph Schema...")
-    conn.execute("CREATE NODE TABLE Character (name STRING, PRIMARY KEY (name))")
-    conn.execute("CREATE REL TABLE InteractedWith (FROM Character TO Character, action STRING)")
+    conn.execute("CREATE NODE TABLE Entity (name STRING, label STRING, PRIMARY KEY (name))")
+    conn.execute("CREATE REL TABLE RelatedTo (FROM Entity TO Entity, relationship STRING)")
     
     print("3. Loading the FULL Mahabharata...")
     with open("data/mahabharata_swapped.txt", "r", encoding="utf-8") as f:
@@ -75,24 +80,34 @@ def build_graph():
             # The structure and schema description is already bound to the API request
             extraction = structured_llm.invoke(f"Extract relationships from this text: {chunk}")
             
-            for rel in extraction.relationships:
-                sub = rel.subject.strip().title()
-                obj = rel.object.strip().title()
-                act = rel.action.strip().lower()
+            for node in extraction.nodes:
+                n = node.name.strip().title()
+                l = node.label.strip().title()
+                if len(n) > 20 or not n:
+                    continue
+                if n not in inserted_chars:
+                    conn.execute("CREATE (:Entity {name: $name, label: $label})", parameters={"name": n, "label": l})
+                    inserted_chars.add(n)
+            
+            for rel in extraction.edges:
+                sub = rel.source.strip().title()
+                obj = rel.target.strip().title()
+                act = rel.relationship.strip().lower()
                 
                 if len(sub) > 20 or len(obj) > 20 or not sub or not obj:
                     continue
                     
+                # In case an edge references a node that wasn't properly listed in nodes
                 if sub not in inserted_chars:
-                    conn.execute("CREATE (:Character {name: $name})", parameters={"name": sub})
+                    conn.execute("CREATE (:Entity {name: $name, label: $label})", parameters={"name": sub, "label": "Unknown"})
                     inserted_chars.add(sub)
                 if obj not in inserted_chars:
-                    conn.execute("CREATE (:Character {name: $name})", parameters={"name": obj})
+                    conn.execute("CREATE (:Entity {name: $name, label: $label})", parameters={"name": obj, "label": "Unknown"})
                     inserted_chars.add(obj)
                     
                 conn.execute(
-                    "MATCH (s:Character {name: $sub}), (o:Character {name: $obj}) "
-                    "CREATE (s)-[:InteractedWith {action: $act}]->(o)",
+                    "MATCH (s:Entity {name: $sub}), (o:Entity {name: $obj}) "
+                    "CREATE (s)-[:RelatedTo {relationship: $act}]->(o)",
                     parameters={"sub": sub, "obj": obj, "act": act}
                 )
                 print(f"    --> Graph Edge: [{sub}] --({act})--> [{obj}]")

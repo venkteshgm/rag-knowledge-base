@@ -7,16 +7,44 @@ warnings.filterwarnings("ignore")
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
-from langchain_ollama import OllamaEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_core.embeddings import Embeddings
+import time
+from dotenv import load_dotenv
 
 DB_DIR = "./chroma_db_mahabharata"
 
+class RetryEmbeddings(Embeddings):
+    def __init__(self, model_name="gemini-embedding-2"):
+        self.emb = GoogleGenerativeAIEmbeddings(model=model_name)
+        
+    def embed_documents(self, texts):
+        while True:
+            try:
+                return self.emb.embed_documents(texts)
+            except Exception as e:
+                print(f"    [Embedding Rate Limit] Sleeping for 10s... ({e})")
+                time.sleep(10)
+                
+    def embed_query(self, text):
+        while True:
+            try:
+                return self.emb.embed_query(text)
+            except Exception as e:
+                print(f"    [Embedding Rate Limit] Sleeping for 10s... ({e})")
+                time.sleep(10)
+
 def build_index():
+    load_dotenv()
+    if not os.environ.get("GOOGLE_API_KEY"):
+        print("ERROR: GOOGLE_API_KEY environment variable not set. Please export it first!")
+        return
+
     print(f"0. Cleaning up old database at {DB_DIR}...")
     shutil.rmtree(DB_DIR, ignore_errors=True)
     
-    print("1. Initializing Embedding model from local Ollama...")
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    print("1. Initializing Embedding model from Google API (gemini-embedding-2)...")
+    embeddings = RetryEmbeddings(model_name="gemini-embedding-2")
     
     print("2. Loading documents from 'data/' directory...")
     # Load our specific swapped text file

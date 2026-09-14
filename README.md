@@ -9,17 +9,18 @@ By combining the semantic storytelling context of a Vector Database with the und
 The system is split into two parallel retrieval pipelines that converge into a final master synthesis:
 
 1. **Semantic Vector Search (ChromaDB)**
-   - Text is chopped into small chunks and mathematically embedded into a local vector space.
+   - Text is chopped into small chunks and mathematically embedded into a local vector space using Google's `gemini-embedding-2`.
    - Ideal for retrieving rich story context, descriptive prose, and general thematic matching.
-   - Employs a *Multi-Query Retriever* pattern to generate variations of the user's question to overcome distance-based similarity limitations.
+   - Employs a custom `RetryEmbeddings` wrapper to automatically handle API rate limits during massive indexing jobs.
 
 2. **GraphRAG (KuzuDB)**
-   - Text is processed in massive 15,000-character batches by a frontier LLM to extract concrete noun relationships (e.g., `[Arjunos] --(killed)--> [Karnos]`).
+   - Text is processed in massive 15,000-character batches by a frontier LLM to extract complex relationships across an advanced ontology.
+   - The graph tracks Nodes dynamically categorized as `Character`, `Location`, `Concept`, `Weapon`, or `Event`.
    - These facts are stored as explicit Nodes and Edges in a local Knowledge Graph.
-   - Completely immune to "Context Fragmentation" and guarantees factual accuracy.
 
-3. **Hybrid Synthesis**
+3. **Hybrid Synthesis & Text-to-Cypher**
    - The final query engine (`hybrid_query.py`) simultaneously searches ChromaDB for context and KuzuDB for hard facts.
+   - It utilizes a dedicated **Text-to-Cypher** agent that translates your question into raw mathematical database code to hunt down complex answers across the graph.
    - It synthesizes both data streams into a single Master Prompt, allowing the generation LLM to anchor its logic in the graph while drawing descriptive flavor from the vector chunks.
 
 ## Technologies Used
@@ -27,8 +28,7 @@ The system is split into two parallel retrieval pipelines that converge into a f
 - **LangChain**: The core orchestration framework tying the databases, models, and fallback cascades together.
 - **KuzuDB**: A hyper-fast, embeddable graph database used to store character interaction edges.
 - **ChromaDB**: The local vector database used to store semantic text embeddings.
-- **Ollama**: Used to run local, privacy-first embedding models (`nomic-embed-text`).
-- **Google Gemini / Gemma APIs**: Powers the heavy lifting (Graph Extraction and Final Synthesis) via the `langchain-google-genai` integration.
+- **Google Gemini / Gemma APIs**: Powers the entire architecture 100% in the cloud via the `langchain-google-genai` integration (Vector Embeddings, Graph Extraction, Text-to-Cypher, and Final Synthesis).
 - **Pydantic**: Enforces strict JSON schema validation for the GraphRAG extraction via LangChain's `with_structured_output`, ensuring the LLM perfectly maps its findings to the Kuzu schema.
 
 ## Resilience (Cascade Failover)
@@ -44,32 +44,26 @@ To rapidly process the entire 750,000-character epic without spending money on A
 - `build_graph.py`: Batches the text and uses Gemini to extract relationships into the Kuzu Graph Database.
 
 ### Query Engines
-- `query.py`: A pure Vector RAG engine using Ollama and a Multi-Query Retriever.
 - `query_graph.py`: A pure GraphRAG engine that extracts target entities and runs Cypher queries.
-- `hybrid_query.py`: The ultimate engine that combines both Vector and Graph databases to generate the perfect answer.
+- `hybrid_query.py`: The ultimate engine that combines both Vector and Graph databases to generate the perfect answer using dynamic Text-to-Cypher logic.
 
 ## Setup & Execution
 
-1. Ensure Ollama is installed and running locally with the following models:
+1. Install the required python dependencies:
    ```bash
-   ollama pull llama3.2
-   ollama pull nomic-embed-text
-   ```
-2. Install the required python dependencies:
-   ```bash
-   pip install langchain langchain-chroma langchain-ollama langchain-google-genai pydantic kuzu python-dotenv
+   pip install langchain langchain-chroma langchain-google-genai pydantic kuzu python-dotenv
    ```
 3. Create a `.env` file in the root directory and add your Google API key:
    ```env
    GOOGLE_API_KEY="your_api_key_here"
    ```
-4. Run the data prep and build scripts:
+3. Run the data prep and build scripts:
    ```bash
    python scripts/download_and_prep_data.py
    python build_index.py
    python build_graph.py
    ```
-5. Query the epic:
+4. Query the epic:
    ```bash
    python hybrid_query.py
    ```
