@@ -8,3 +8,4 @@ kuzu_db/
 .env_advanced/
 chroma_db_mahabharata/
 data/
+bm25_index.pkl

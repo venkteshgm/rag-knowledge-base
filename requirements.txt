@@ -1,0 +1,11 @@
+langchain
+langchain-chroma
+langchain-google-genai
+langchain-ollama
+pydantic
+kuzu
+python-dotenv
+umap-learn
+scikit-learn
+rich
+rank-bm25

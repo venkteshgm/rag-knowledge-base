@@ -62,7 +62,16 @@ def build_index():
     splits = text_splitter.split_documents(docs)
     print(f"Loaded and split the Mahabharata into {len(splits)} narrative chunks.")
     
-    print("3. Embedding chunks and saving to ChromaDB in batches to prevent API timeouts...")
+    print("3. Building BM25 Index for exact keyword search...")
+    from langchain_community.retrievers import BM25Retriever
+    import pickle
+    bm25_retriever = BM25Retriever.from_documents(splits)
+    bm25_retriever.k = 3
+    with open("bm25_index.pkl", "wb") as f:
+        pickle.dump(bm25_retriever, f)
+    print("   Saved BM25 Index to bm25_index.pkl")
+    
+    print("4. Embedding chunks and saving to ChromaDB in batches to prevent API timeouts...")
     vectorstore = Chroma(embedding_function=embeddings, persist_directory=DB_DIR)
     
     batch_size = 50

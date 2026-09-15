@@ -34,6 +34,8 @@ class RichCallbackHandler(BaseCallbackHandler):
             icon = "🎯"
         elif tool_name == "Search_RAPTOR_Summaries":
             icon = "🦅"
+        elif tool_name == "Search_Exact_Keywords":
+            icon = "🔑"
             
         console.print(f"[bold magenta]{icon} [{tool_name}][/bold magenta] Searching for: [cyan]{tool_input}[/cyan]")
         
@@ -75,6 +77,11 @@ kuzu_conn = kuzu.Connection(kuzu_db)
 raptor_vectorstore = Chroma(persist_directory="./chroma_db_raptor", embedding_function=embeddings)
 raptor_retriever = raptor_vectorstore.as_retriever(search_kwargs={"k": 3})
 
+# 5. Initialize BM25 (Path E)
+import pickle
+with open("bm25_index.pkl", "rb") as f:
+    bm25_retriever = pickle.load(f)
+
 # --- DEFINE TOOLS ---
 def search_vector_index(query: str) -> str:
     """Searches the raw text of the Mahabharata for specific paragraphs, scenes, and descriptions."""
@@ -114,7 +121,19 @@ def search_raptor_summaries(query: str) -> str:
         return "No global summaries found."
     return "\n\n".join([f"[RAPTOR Summary]: {doc.page_content}" for doc in docs])
 
+def search_bm25_index(query: str) -> str:
+    """Searches the raw text using exact string/keyword matching (BM25)."""
+    docs = bm25_retriever.invoke(query)
+    if not docs:
+        return "No exact matches found."
+    return "\n\n".join([f"[BM25 Result]: {doc.page_content}" for doc in docs])
+
 tools = [
+    Tool(
+        name="Search_Exact_Keywords",
+        func=search_bm25_index,
+        description="Searches raw text using exact string/keyword matching. Highly effective for finding specific IDs like 'ENTITY_DRO6' or exact weapon names. Do NOT use full sentences."
+    ),
     Tool(
         name="Search_Raw_Text",
         func=search_vector_index,

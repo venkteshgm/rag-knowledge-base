@@ -37,6 +37,7 @@ The system is split into two parallel retrieval pipelines that converge into a f
 - **ChromaDB**: The local vector database used to store semantic text embeddings AND Edge Embeddings.
 - **Google Gemini / Gemma APIs**: Powers the generative reasoning steps via the `langchain-google-genai` integration (Graph Extraction, Cypher Fallback, and Final Synthesis).
 - **Pydantic**: Enforces strict JSON schema validation for the GraphRAG extraction via LangChain's `with_structured_output`, ensuring the LLM perfectly maps its findings to the Kuzu schema.
+- **BM25 Keyword Search**: A sparse retrieval method used for exact keyword and ID matching.
 
 ## Anti-Bleeding Strategy (Cryptographic Mappings)
 One of the biggest challenges with LLMs in RAG architectures for famous texts (like the Mahabharata) is **pre-training bleed** — where the model ignores the retrieved context and answers from its training data. 
@@ -62,17 +63,18 @@ To rapidly process the entire 750,000-character epic without spending money on A
 - `hybrid_query.py`: An engine that combines Vector and Graph databases to generate the perfect answer using dynamic Text-to-Cypher logic.
 - `agentic_query.py`: An autonomous agent loop that decides which tools to query (Raw Text, Fuzzy Edges, RAPTOR Summaries) and when to answer the user's question, displaying its "thoughts" to the user along the way.
 
-## Setup & Execution
+## Setup Instructions
 
-1. Clone the repository and install the required python dependencies:
+1. Clone the repository:
    ```bash
-   pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv umap-learn scikit-learn rich
+   git clone https://github.com/venkteshgm/rag-knowledge-base.git
+   cd rag-knowledge-base
    ```
 2. Create a `.env` file in the root directory and add your Google API key:
    ```env
-   GOOGLE_API_KEY="your_api_key_here"
+   GOOGLE_API_KEY="your_google_api_key_here"
    ```
-3. Run the automated setup script to download the data and build all databases (Vector, Graph, RAPTOR):
+3. Run the automated setup script to install dependencies, clean data, and build all databases:
    ```bash
    bash setup.sh
    ```
