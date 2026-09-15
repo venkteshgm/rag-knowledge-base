@@ -118,7 +118,7 @@ tools = [
     Tool(
         name="Search_Raw_Text",
         func=search_vector_index,
-        description="Searches raw text paragraphs. Use to find specific quotes, battlefield descriptions, and granular story events."
+        description="Searches raw text paragraphs. Use natural language sentences (e.g., 'How did ENTITY_DRO6 die?'). Do NOT use keyword mashups. Do NOT use real names."
     ),
     Tool(
         name="Search_Fuzzy_Edges",
@@ -128,7 +128,7 @@ tools = [
     Tool(
         name="Search_Exact_Character_Graph",
         func=search_cypher_graph,
-        description="Extracts all graph edges for a SPECIFIC character. Input must ONLY be a Character Name (e.g. 'Arjunos'). Highly accurate for character logic."
+        description="Extracts all graph edges for a SPECIFIC character. Input must ONLY be a Character Name (e.g. 'ENTITY_ARJ7'). Highly accurate for character logic."
     ),
     Tool(
         name="Search_RAPTOR_Summaries",
@@ -148,6 +148,7 @@ template = '''Answer the following questions as best you can. You are an expert 
 CRITICAL RULE 1 (Blind Searching): You must ONLY use the provided ENTITY_XXX, FACTION_XXX, or LOCATION_XXX IDs in your tool inputs. Do NOT attempt to guess their real names or translate them back into English. For example, if you see ENTITY_DRO6, query using ENTITY_DRO6.
 CRITICAL RULE 2 (Anti-Hallucination): In your Final Answer, you are STRICTLY FORBIDDEN from mentioning any facts, storylines, or events that were not explicitly stated in the 'Observation' blocks. Do not use your pre-trained knowledge to fill in gaps. If the text does not say why someone did something, do not add it!
 CRITICAL RULE 3 (Scrubbed Databases): The underlying databases have been COMPLETELY SCRUBBED of all real character names (like Drona, Arjuna, Bhima, etc). If you attempt to search for real names, you will get ZERO results. You MUST search using ONLY the provided IDs. Do not attempt to reverse-engineer or use canonical names in your searches!
+CRITICAL RULE 4 (Vector Search Strategy): When using Search_Raw_Text, use full, natural language sentences (e.g., 'How did ENTITY_DRO6 die?'). Do NOT use boolean keywords (e.g., 'ENTITY_DRO6 killed sword').
 
 Use the following format:
 
@@ -175,6 +176,7 @@ agent_executor = AgentExecutor(
     tools=tools, 
     verbose=False, 
     handle_parsing_errors=True,
+    max_iterations=30,
     callbacks=[RichCallbackHandler()]
 )
 
