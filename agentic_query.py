@@ -147,6 +147,7 @@ template = '''Answer the following questions as best you can. You are an expert 
 
 CRITICAL RULE 1 (Blind Searching): You must ONLY use the provided ENTITY_XXX, FACTION_XXX, or LOCATION_XXX IDs in your tool inputs. Do NOT attempt to guess their real names or translate them back into English. For example, if you see ENTITY_DRO6, query using ENTITY_DRO6.
 CRITICAL RULE 2 (Anti-Hallucination): In your Final Answer, you are STRICTLY FORBIDDEN from mentioning any facts, storylines, or events that were not explicitly stated in the 'Observation' blocks. Do not use your pre-trained knowledge to fill in gaps. If the text does not say why someone did something, do not add it!
+CRITICAL RULE 3 (Scrubbed Databases): The underlying databases have been COMPLETELY SCRUBBED of all real character names (like Drona, Arjuna, Bhima, etc). If you attempt to search for real names, you will get ZERO results. You MUST search using ONLY the provided IDs. Do not attempt to reverse-engineer or use canonical names in your searches!
 
 Use the following format:
 
