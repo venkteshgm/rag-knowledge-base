@@ -53,9 +53,9 @@ To rapidly process the entire 750,000-character epic without spending money on A
 - `scripts/download_and_prep_data.py`: Downloads the raw text, sanitizes OCR errors, and standardizes character aliases across the entire epic using regex and **Cryptographic ID Mapping** (e.g. replacing 'Arjuna' with 'ENTITY_ARJ7') to completely blind the LLM from its pre-training bias, ensuring answers are purely derived from the retrieved RAG context.
 
 ### Database Construction
-- `build_index.py`: Chunks the text and embeds it into the Chroma Vector Database.
-- `build_graph.py`: Batches the text and uses Gemini to extract relationships into the Kuzu Graph Database.
-- `build_raptor.py`: Runs UMAP/GMM clustering and LLM summarization to build the hierarchical RAPTOR index.
+- `scripts/build_index.py`: Chunks the text and embeds it into the Chroma Vector Database.
+- `scripts/build_graph.py`: Batches the text and uses Gemini to extract relationships into the Kuzu Graph Database.
+- `scripts/build_raptor.py`: Runs UMAP/GMM clustering and LLM summarization to build the hierarchical RAPTOR index.
 
 ### Query Engines
 - `query_graph.py`: A pure GraphRAG engine that extracts target entities and runs Cypher queries.
@@ -64,20 +64,17 @@ To rapidly process the entire 750,000-character epic without spending money on A
 
 ## Setup & Execution
 
-1. Install the required python dependencies:
+1. Clone the repository and install the required python dependencies:
    ```bash
    pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv umap-learn scikit-learn
    ```
-3. Create a `.env` file in the root directory and add your Google API key:
+2. Create a `.env` file in the root directory and add your Google API key:
    ```env
    GOOGLE_API_KEY="your_api_key_here"
    ```
-3. Run the data prep and build scripts:
+3. Run the automated setup script to download the data and build all databases (Vector, Graph, RAPTOR):
    ```bash
-   python scripts/download_and_prep_data.py
-   python build_index.py
-   python build_graph.py
-   python build_raptor.py
+   bash setup.sh
    ```
 4. Query the epic (Agentic Mode):
    ```bash
