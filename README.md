@@ -66,7 +66,7 @@ To rapidly process the entire 750,000-character epic without spending money on A
 
 1. Clone the repository and install the required python dependencies:
    ```bash
-   pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv umap-learn scikit-learn
+   pip install langchain langchain-chroma langchain-google-genai langchain-ollama pydantic kuzu python-dotenv umap-learn scikit-learn rich
    ```
 2. Create a `.env` file in the root directory and add your Google API key:
    ```env

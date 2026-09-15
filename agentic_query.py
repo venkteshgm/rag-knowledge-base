@@ -7,6 +7,48 @@ from langchain_ollama import OllamaEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents import Tool, AgentExecutor, create_react_agent
 from langchain.prompts import PromptTemplate
+from langchain.callbacks.base import BaseCallbackHandler
+from rich.console import Console
+from rich.panel import Panel
+from rich.markdown import Markdown
+
+console = Console()
+
+class RichCallbackHandler(BaseCallbackHandler):
+    def on_agent_action(self, action, **kwargs):
+        log = action.log
+        if "Thought:" in log:
+            thought = log.split("Thought:")[-1].split("Action:")[0].strip()
+            if thought:
+                console.print(f"\n[dim italic blue]🧠 [Agent Thinking][/dim italic blue] {thought}")
+        
+        tool_name = action.tool
+        tool_input = action.tool_input
+        
+        icon = "⚙️"
+        if tool_name == "Search_Raw_Text":
+            icon = "📚"
+        elif tool_name == "Search_Fuzzy_Edges":
+            icon = "🕸️"
+        elif tool_name == "Search_Exact_Character_Graph":
+            icon = "🎯"
+        elif tool_name == "Search_RAPTOR_Summaries":
+            icon = "🦅"
+            
+        console.print(f"[bold magenta]{icon} [{tool_name}][/bold magenta] Searching for: [cyan]{tool_input}[/cyan]")
+        
+    def on_tool_end(self, output, **kwargs):
+        if "No " in output or "Failed" in output:
+            console.print(f"[bold red]❌ Result:[/bold red] {output}")
+        else:
+            length = len(output)
+            console.print(f"[bold green]✅ Result:[/bold green] Retrieved {length} characters of context.")
+        
+    def on_agent_finish(self, finish, **kwargs):
+        console.print("\n")
+        answer = finish.return_values.get("output", "")
+        console.print(Panel(Markdown(answer), title="[bold green]Final Answer[/bold green]", border_style="green"))
+
 
 # Load Env
 load_dotenv()
@@ -126,8 +168,14 @@ prompt = PromptTemplate.from_template(template)
 
 agent = create_react_agent(llm, tools, prompt)
 
-# We use verbose=True so the user can see exactly what the LLM is thinking and doing
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True)
+# We use a custom Rich callback handler to beautifully format the output
+agent_executor = AgentExecutor(
+    agent=agent, 
+    tools=tools, 
+    verbose=False, 
+    handle_parsing_errors=True,
+    callbacks=[RichCallbackHandler()]
+)
 
 def run_agentic_loop():
     print("\n--- AGENTIC RAG SYSTEM READY ---")
